@@ -51,17 +51,24 @@ public class ChecklistService {
             item.persist();
         }
 
-        return ApplicationChecklistItem.list("applicationId", applicationId);
+        // join fetch checklistMaster supaya tidak LazyInitializationException saat mapping ke DTO
+        return ApplicationChecklistItem.list(
+                "from ApplicationChecklistItem i join fetch i.checklistMaster where i.applicationId = ?1",
+                applicationId);
     }
 
     public List<ApplicationChecklistItem> listForApplication(Long applicationId) {
         applicationService.getOwned(applicationId); // otorisasi
-        return ApplicationChecklistItem.list("applicationId", applicationId);
+        return ApplicationChecklistItem.list(
+                "from ApplicationChecklistItem i join fetch i.checklistMaster where i.applicationId = ?1",
+                applicationId);
     }
 
     @Transactional
     public ApplicationChecklistItem updateItem(Long itemId, ChecklistItemUpdateRequest request) {
-        ApplicationChecklistItem item = ApplicationChecklistItem.findById(itemId);
+        ApplicationChecklistItem item = ApplicationChecklistItem.find(
+                "from ApplicationChecklistItem i join fetch i.checklistMaster where i.id = ?1",
+                itemId).firstResult();
         if (item == null) {
             throw new NotFoundException("Checklist item tidak ditemukan: " + itemId);
         }

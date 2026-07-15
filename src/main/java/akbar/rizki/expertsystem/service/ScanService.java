@@ -10,14 +10,18 @@ import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.NotFoundException;
+import org.jboss.logging.Logger;
 import org.jboss.resteasy.reactive.multipart.FileUpload;
 
 import java.nio.file.Path;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
 @ApplicationScoped
 public class ScanService {
+
+    private static final Logger LOG = Logger.getLogger(ScanService.class);
 
     @Inject
     FileValidationService fileValidationService;
@@ -100,7 +104,7 @@ public class ScanService {
 
             // simpan submission + results + unmatched_queue + update status dalam 1 transaksi
             String suggestedStatus = determineSuggestedStatus(submission.scanStatus, findings);
-            persistResults(submission, resultsToSave, item, suggestedStatus);
+            persistResults(submission, resultsToSave, applicationChecklistItemId, submittedBy, suggestedStatus);
 
             ScanResponse response = new ScanResponse();
             response.scanStatus = submission.scanStatus;
@@ -134,15 +138,18 @@ public class ScanService {
             return json;
         } catch (SemgrepService.SemgrepTimeoutException e) {
             submission.scanStatus = "TIMEOUT";
+            LOG.warnf("Scan Semgrep TIMEOUT untuk file %s: %s", filePath.getFileName(), e.getMessage());
             return null;
         } catch (Exception e) {
             submission.scanStatus = "FAILED";
+            // log penyebab asli — mis. 'semgrep' tidak ditemukan di PATH akan muncul di sini
+            LOG.errorf(e, "Scan Semgrep FAILED untuk file %s", filePath.getFileName());
             return null;
         }
     }
 
     private void persistResults(ScanSubmission submission, List<ScanResult> results,
-                                ApplicationChecklistItem item, String suggestedStatus) {
+                                Long applicationChecklistItemId, Long submittedBy, String suggestedStatus) {
         QuarkusTransaction.requiringNew().run(() -> {
             submission.persist();
 
@@ -157,11 +164,15 @@ public class ScanService {
                 }
             }
 
-            // update saran status + keterangan di application_checklist_items
-            // (developer/reviewer masih bisa edit manual setelah ini)
-            item.status = suggestedStatus;
-            item.keterangan = buildKeteranganSummary(submission.scanStatus, results);
-            item.persist();
+            // ambil ulang item DI DALAM transaksi supaya jadi entity managed (bukan detached),
+            // lalu update field-nya — dirty checking akan otomatis flush saat commit
+            ApplicationChecklistItem item = ApplicationChecklistItem.findById(applicationChecklistItemId);
+            if (item != null) {
+                item.status = suggestedStatus;
+                item.keterangan = buildKeteranganSummary(submission.scanStatus, results);
+                item.updatedBy = submittedBy;
+                item.updatedAt = OffsetDateTime.now();
+            }
         });
     }
 

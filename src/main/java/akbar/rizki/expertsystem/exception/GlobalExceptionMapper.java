@@ -36,7 +36,7 @@ public class GlobalExceptionMapper implements ExceptionMapper<Throwable> {
         // error tak terduga — jangan bocorkan stack trace ke client, cukup log di server
         LOG.error("Unhandled exception", exception);
         return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-            .entity(Map.of("error", "Terjadi kesalahan internal"))
+            .entity(Map.of("error", "Terjadi kesalahan internal, ini salah di Backend"))
             .type(MediaType.APPLICATION_JSON)
             .build();
     }
